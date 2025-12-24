@@ -12,7 +12,6 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     timer_ = new QTimer(this);
-    connect(ui->openBtn, &QPushButton::clicked, this, &MainWindow::loadMedia);
     connect(ui->playBtn, &QPushButton::clicked, this, &MainWindow::playMedia);
     connect(ui->pauseBtn, &QPushButton::clicked, this, &MainWindow::pauseMedia);
     connect(ui->stopBtn, &QPushButton::clicked, this, &MainWindow::stopMedia);
@@ -30,26 +29,42 @@ MainWindow::MainWindow(QWidget *parent)
 void MainWindow::loadMedia() {
     // http://vjs.zencdn.net/v/oceans.mp4
     // 可用来测试网络链接
-    if(isLoad) {
+    QString url = ui->locationEdit->text().trimmed();
+    if (url.isEmpty()) {
+        return;
+    }
+    // 如果当前正在播放(或者已经加载了)上一个视频，先执行停止
+    if (isLoad) {
         stopMedia();
     }
+    vlc_player.loadMedia(url);
     isLoad = true;
-    vlc_player.loadMedia(ui->locationEdit->text().trimmed());
-    resetSlider(vlc_player.getTotalTime());
+    resetUI();
+    // playMedia();
 }
 void MainWindow::playMedia() {
+    loadMedia();
+    if (!isLoad) return;
     vlc_player.play((void*)ui->playWidget->winId());
     timer_->start(500);
+    ui->posSlider->setEnabled(true);
 }
 void MainWindow::pauseMedia() {
     vlc_player.pause();
 }
 void MainWindow::stopMedia() {
     // 可通过销毁视频播放窗口来避免vlcstop时的异常卡死
-    timer_->stop();
-    resetSlider(0);
-    vlc_player.stop();
-    ui->playWidget->update();
+    if (timer_->isActive()) {
+        timer_->stop();
+    }
+    if (isLoad) {
+        vlc_player.stop();
+        // 刷新窗口背景，去除残留画面
+        ui->playWidget->update();
+        // 标志位复位
+        isLoad = false;
+    }
+    resetUI();
 }
 void MainWindow::browserFile() {
     QString defaultPath = "D:\\video\\test";
@@ -84,13 +99,17 @@ void MainWindow::updateSlider() {
     ui->timeLb->setText(QString("%1 / %2").arg(formatTime(curTime_),formatTime(totalTime_)));
 }
 
-void MainWindow::resetSlider(int64_t time) {
-    totalTime_ = time;
+// 重置 UI 状态
+void MainWindow::resetUI() {
+    // 重置时间变量
+    totalTime_ = 0;
     curTime_ = 0;
+
+    // 重置进度条
     ui->posSlider->setValue(0);
-    ui->timeLb->setText(QString("%1 / %2").arg(formatTime(curTime_),formatTime(totalTime_)));
+    ui->posSlider->setEnabled(false); // 加载完成前禁用进度条，防止乱拖
+    ui->timeLb->setText("--:-- / --:--");
     ui->volumeSlider->setValue(volume_);
-    ui->volumeLb->setText(QString("%1%").arg(volume_));
 }
 
 void MainWindow::onProgessReleased() {

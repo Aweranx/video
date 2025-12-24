@@ -24,7 +24,7 @@ public:
     void stopMedia();
     void browserFile();
     void updateSlider();
-    void resetSlider(int64_t time);
+    void resetUI();
     void onProgessReleased();
     void onProgessMoved(int value);
     void onVolumeReleased();

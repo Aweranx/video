@@ -34,19 +34,6 @@
      </rect>
     </property>
    </widget>
-   <widget class="QPushButton" name="openBtn">
-    <property name="geometry">
-     <rect>
-      <x>270</x>
-      <y>20</y>
-      <width>93</width>
-      <height>28</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Open</string>
-    </property>
-   </widget>
    <widget class="QPushButton" name="fileBtn">
     <property name="geometry">
      <rect>
