@@ -3,13 +3,13 @@
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/system/detail/error_code.hpp>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <chrono>
 
 #include "RTP.h"
 #include "global.h"
@@ -25,8 +25,6 @@ int RTSPRequest::parseRequest(const std::string& req_str) {
       line.pop_back();
     }
     if (line.empty()) {
-      // 如果后续有 Body (比如 POST/ANNOUNCE)，可以在这里处理
-      // 对于 OPTIONS/DESCRIBE 等简单请求，直接跳出循环即可
       break;
     }
 
@@ -160,12 +158,8 @@ RTSPSession::RTSPSession(net::io_context& ioc)
 
 RTSPSession::~RTSPSession() {
   clearFile();
-  if (RTP_socket_.is_open()) {
-    RTP_socket_.close();
-  }
-  if (RTCP_socket_.is_open()) {
-    RTCP_socket_.close();
-  }
+  closeSocket();
+  std::cout << "session析构" << std::endl;
 }
 
 tcp::socket& RTSPSession::Socket() { return client_socket_; }
@@ -283,14 +277,8 @@ void RTSPSession::handlePlay(const RTSPRequest& req, RTSPReply& reply) {
 void RTSPSession::handleTeardown(const RTSPRequest& req, RTSPReply& reply) {
   reply.status_code_ = StatusCode::OK;
   reply.session_id_ = session_id_;
-  // 清理资源，准备关闭连接
   clearFile();
-  if (RTP_socket_.is_open()) {
-    RTP_socket_.close();
-  }
-  if (RTCP_socket_.is_open()) {
-    RTCP_socket_.close();
-  }
+  
 }
 
 void RTSPSession::handleBadRequest(const RTSPRequest& req) {}
@@ -301,7 +289,7 @@ void RTSPSession::sendReply(const RTSPReply& reply) {
   auto self = shared_from_this();
 
   boost::asio::async_write(client_socket_, boost::asio::buffer(response_str),
-                           [this, self](boost::system::error_code ec,
+                           [this, self, reply](boost::system::error_code ec,
                                         std::size_t bytes_transferred) {
                              if (ec) {
                                // 处理发送错误，比如打印日志或断开连接
@@ -309,7 +297,9 @@ void RTSPSession::sendReply(const RTSPReply& reply) {
                              } else {
                                // 发送成功
                                // 如果是 TEARDOWN 的响应，发送完可能需要主动关闭
-                               // socket
+                               if(reply.method_ == RTSPMethod::TEARDOWN) {
+                                closeSocket();
+                               }
                              }
                            });
 }
@@ -323,10 +313,25 @@ void RTSPSession::clearFile() {
   timer_.cancel();
 }
 
+void RTSPSession::closeSocket() {
+  if (RTP_socket_.is_open()) {
+    std::cout << "关闭RTP socket " << std::endl;
+    RTP_socket_.close();
+  }
+  if (RTCP_socket_.is_open()) {
+    std::cout << "关闭RTCP socket " << std::endl;
+    RTCP_socket_.close();
+  }
+  if(client_socket_.is_open()) {
+    std::cout << "关闭客户端 socket " << std::endl;
+    client_socket_.close();
+  }
+}
+
 void RTSPSession::startRtpSending() {
   auto self = shared_from_this();
 
-  // 设置定时器：每 40ms (1000/25) 触发一次
+  // 设置定时器：每 (1000/fps) 触发一次
   timer_.expires_after(std::chrono::milliseconds(1000 / fps_));
   timer_.async_wait([this, self](boost::system::error_code ec) {
     if (!ec) {
@@ -336,9 +341,8 @@ void RTSPSession::startRtpSending() {
   });
 }
 
-// ---------------------------------------------------------
+
 // 读取一个NALU并切片发送  起始码不参与发送
-// ---------------------------------------------------------
 void RTSPSession::sendOneH264Frame() {
   if (!video_file_.is_open() || video_file_.eof()) {
     clearFile();
